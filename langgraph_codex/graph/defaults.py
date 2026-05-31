@@ -1,0 +1,3 @@
+import langgraph_codex.defaults
+
+DEFAULT_MAX_RETRIES = langgraph_codex.defaults.DEFAULT_MAX_RETRIES
