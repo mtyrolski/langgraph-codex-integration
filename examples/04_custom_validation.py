@@ -1,7 +1,7 @@
 import pathlib
 import typing
 
-import _codex_runtime
+import langgraph_codex.codex_runtime as codex_runtime
 
 import langgraph_codex.execution
 import langgraph_codex.graph
@@ -38,9 +38,9 @@ def print_section(title: str, value: object) -> None:
 
 
 def main() -> None:
-    _codex_runtime.ensure_codex_authorized()
-    _codex_runtime.print_authorization_status()
-    executor = _codex_runtime.create_codex_executor()
+    codex_runtime.ensure_codex_authorized()
+    codex_runtime.print_authorization_status()
+    executor = codex_runtime.create_codex_executor()
     graph = langgraph_codex.graph.build_execution_graph(
         executor=executor,
         validators=[executor_stdout_contains(SUCCESS_MARKER)],

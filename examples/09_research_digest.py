@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import typing
 
-import _codex_runtime
+import langgraph_codex.codex_runtime as codex_runtime
 
 import langgraph_codex.execution
 import langgraph_codex.graph
@@ -27,7 +27,7 @@ def format_json(value: typing.Any) -> str:
 
 def print_workspace_files(workspace_path: pathlib.Path) -> None:
     for path in sorted(candidate for candidate in workspace_path.rglob("*") if candidate.is_file()):
-        _codex_runtime.print_section(
+        codex_runtime.print_section(
             f"Workspace file: {path.relative_to(workspace_path)}", read_text(path)
         )
 
@@ -142,17 +142,17 @@ def validate_digest(
 
 
 def main() -> None:
-    _codex_runtime.ensure_codex_authorized()
-    _codex_runtime.print_authorization_status()
+    codex_runtime.ensure_codex_authorized()
+    codex_runtime.print_authorization_status()
     with tempfile.TemporaryDirectory(prefix="langgraph-codex-research-") as temporary_directory:
         workspace_path = pathlib.Path(temporary_directory)
         write_research_notes(workspace_path)
 
-        _codex_runtime.print_section("Scenario", "Real CodexExecutor research digest.")
-        _codex_runtime.print_section("Temporary Workspace", workspace_path)
+        codex_runtime.print_section("Scenario", "Real CodexExecutor research digest.")
+        codex_runtime.print_section("Temporary Workspace", workspace_path)
         print_workspace_files(workspace_path)
 
-        executor = _codex_runtime.create_codex_executor()
+        executor = codex_runtime.create_codex_executor()
         graph = langgraph_codex.graph.build_execution_graph(
             executor=executor,
             validators=[validate_digest],
@@ -176,12 +176,12 @@ def main() -> None:
         )
 
         execution_result = result["execution_result"]
-        _codex_runtime.print_section("Deterministic Artifacts", format_json(result["artifacts"]))
-        _codex_runtime.print_section("Rendered Prompt", result["rendered_prompt"])
-        _codex_runtime.print_section("Review Result", format_json(result["review_result"]))
-        _codex_runtime.print_section("Execution Return Code", execution_result.returncode)
-        _codex_runtime.print_section("Execution Stdout", execution_result.stdout or "(empty)")
-        _codex_runtime.print_section("Execution Stderr", execution_result.stderr or "(empty)")
+        codex_runtime.print_section("Deterministic Artifacts", format_json(result["artifacts"]))
+        codex_runtime.print_section("Rendered Prompt", result["rendered_prompt"])
+        codex_runtime.print_section("Review Result", format_json(result["review_result"]))
+        codex_runtime.print_section("Execution Return Code", execution_result.returncode)
+        codex_runtime.print_section("Execution Stdout", execution_result.stdout or "(empty)")
+        codex_runtime.print_section("Execution Stderr", execution_result.stderr or "(empty)")
         print_workspace_files(workspace_path)
 
 

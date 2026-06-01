@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "langgraph>=0.2.0",
+    "pyright>=1.1.410",
 ]
 
 [project.optional-dependencies]
