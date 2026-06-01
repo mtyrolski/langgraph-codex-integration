@@ -2,9 +2,9 @@ import dataclasses
 import pathlib
 import typing
 
-import langgraph_codex.backends.base as backend_base
-import langgraph_codex.backends.fake as fake_backend
 import langgraph_codex.defaults as defaults
+import langgraph_codex.execution.base as execution_base
+import langgraph_codex.execution.fake as fake_execution
 import langgraph_codex.graph.state as graph_state
 import langgraph_codex.utils.prompts as prompt_utils
 import langgraph_codex.utils.validation as validation_utils
@@ -72,38 +72,47 @@ def create_render_prompt_node() -> ContextBuilder:
     return node
 
 
-def create_backend_node(
-    backend: backend_base.ExecutionBackend | None = None,
+def create_execution_node(
+    executor: execution_base.Executor | None = None,
 ) -> ContextBuilder:
-    selected_backend = backend or fake_backend.FakeBackend()
+    selected_executor = executor or fake_execution.FakeExecutor()
 
     def node(state: graph_state.WorkflowState) -> StateUpdate:
         workspace_path = workspace_utils.resolve_workspace_path(state.get("workspace_path"))
-        request = backend_base.BackendRequest(
+        execution_options = dict(state.get("execution_options", {}) or {})
+        if not execution_options:
+            execution_options = dict(state.get("backend_options", {}) or {})
+        request = execution_base.ExecutionRequest(
             workspace_path=workspace_path,
             prompt=str(state.get("rendered_prompt", "") or ""),
             metadata=dict(state.get("metadata", {}) or {}),
-            options=dict(state.get("backend_options", {}) or {}),
+            options=execution_options,
         )
-        result = selected_backend.execute(request)
-        return {"backend_result": result}
+        result = selected_executor.execute(request)
+        return {"execution_result": result, "backend_result": result}
 
     return node
+
+
+def create_backend_node(
+    backend: execution_base.Executor | None = None,
+) -> ContextBuilder:
+    return create_execution_node(backend)
 
 
 def create_review_node(
     validators: list[validation_utils.Validator] | None = None,
 ) -> ContextBuilder:
     def node(state: graph_state.WorkflowState) -> StateUpdate:
-        backend_result = state.get("backend_result")
-        if backend_result is not None and backend_result.returncode != 0:
+        execution_result = state.get("execution_result") or state.get("backend_result")
+        if execution_result is not None and execution_result.returncode != 0:
             validation_result = validation_utils.ValidationResult(
                 passed=False,
-                message=f"Backend failed with return code {backend_result.returncode}.",
+                message=f"Execution failed with return code {execution_result.returncode}.",
                 details={
-                    "stdout": backend_result.stdout,
-                    "stderr": backend_result.stderr,
-                    "returncode": backend_result.returncode,
+                    "stdout": execution_result.stdout,
+                    "stderr": execution_result.stderr,
+                    "returncode": execution_result.returncode,
                 },
             )
         else:

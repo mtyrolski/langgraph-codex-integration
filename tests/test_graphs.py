@@ -1,6 +1,6 @@
 import pathlib
 
-import langgraph_codex.backends
+import langgraph_codex.execution
 import langgraph_codex.graph
 
 
@@ -20,38 +20,38 @@ def test_context_only_graph_renders_prompt(tmp_path: pathlib.Path) -> None:
     assert "## Objective" in result["rendered_prompt"]
 
 
-def test_basic_backend_graph_runs_fake_backend(tmp_path: pathlib.Path) -> None:
-    backend = langgraph_codex.backends.FakeBackend(stdout="completed")
-    graph = langgraph_codex.graph.build_basic_backend_graph(backend=backend)
+def test_execution_graph_runs_fake_executor(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(stdout="completed")
+    graph = langgraph_codex.graph.build_execution_graph(executor=executor)
 
     result = graph.invoke(
         {
             "workspace_path": tmp_path,
             "task_title": "Basic graph",
-            "objective": "Run backend.",
+            "objective": "Run executor.",
         }
     )
 
-    assert result["backend_result"].stdout == "completed"
+    assert result["execution_result"].stdout == "completed"
     assert result["validation_result"].passed is True
-    assert len(backend.requests) == 1
-    assert backend.requests[0].prompt.startswith("# Basic graph")
+    assert len(executor.requests) == 1
+    assert executor.requests[0].prompt.startswith("# Basic graph")
 
 
-def test_retry_graph_retries_backend_failure(tmp_path: pathlib.Path) -> None:
-    backend = langgraph_codex.backends.FakeBackend(returncode=1, stderr="failed")
-    graph = langgraph_codex.graph.build_retry_graph(backend=backend)
+def test_retry_graph_retries_executor_failure(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(returncode=1, stderr="failed")
+    graph = langgraph_codex.graph.build_retry_graph(executor=executor)
 
     result = graph.invoke(
         {
             "workspace_path": tmp_path,
             "task_title": "Retry graph",
-            "objective": "Retry failed backend.",
+            "objective": "Retry failed executor.",
             "max_retries": 2,
         }
     )
 
-    assert len(backend.requests) == 3
+    assert len(executor.requests) == 3
     assert result["retry_count"] == 2
     assert result["validation_result"].passed is False
 
@@ -60,20 +60,20 @@ def test_retry_graph_stops_after_success(tmp_path: pathlib.Path) -> None:
     attempts = {"count": 0}
 
     def responder(
-        request: langgraph_codex.backends.BackendRequest,
-    ) -> langgraph_codex.backends.BackendResult:
+        _request: langgraph_codex.execution.ExecutionRequest,
+    ) -> langgraph_codex.execution.ExecutionResult:
         attempts["count"] += 1
         if attempts["count"] == 1:
-            return langgraph_codex.backends.BackendResult(
+            return langgraph_codex.execution.ExecutionResult(
                 stdout="",
                 stderr="try again",
                 returncode=1,
             )
 
-        return langgraph_codex.backends.BackendResult(stdout="ok", stderr="", returncode=0)
+        return langgraph_codex.execution.ExecutionResult(stdout="ok", stderr="", returncode=0)
 
-    backend = langgraph_codex.backends.FakeBackend(responder=responder)
-    graph = langgraph_codex.graph.build_retry_graph(backend=backend)
+    executor = langgraph_codex.execution.FakeExecutor(responder=responder)
+    graph = langgraph_codex.graph.build_retry_graph(executor=executor)
 
     result = graph.invoke(
         {
@@ -84,6 +84,6 @@ def test_retry_graph_stops_after_success(tmp_path: pathlib.Path) -> None:
         }
     )
 
-    assert len(backend.requests) == 2
+    assert len(executor.requests) == 2
     assert result["retry_count"] == 1
     assert result["validation_result"].passed is True

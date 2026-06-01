@@ -3,46 +3,45 @@ import typing
 
 import pytest
 
-import langgraph_codex.backends
-import langgraph_codex.backends.exec
+import langgraph_codex.execution
 import langgraph_codex.utils.subprocess
 
 
-def test_fake_backend_returns_configured_result_and_captures_request(
+def test_fake_executor_returns_configured_result_and_captures_request(
     tmp_path: pathlib.Path,
 ) -> None:
-    backend = langgraph_codex.backends.FakeBackend(
+    executor = langgraph_codex.execution.FakeExecutor(
         stdout="done",
         stderr="",
         returncode=0,
         structured_outputs={"value": 1},
     )
-    request = langgraph_codex.backends.BackendRequest(
+    request = langgraph_codex.execution.ExecutionRequest(
         workspace_path=tmp_path,
         prompt="Perform work.",
     )
 
-    result = backend.execute(request)
+    result = executor.execute(request)
 
     assert result.succeeded is True
     assert result.stdout == "done"
     assert result.structured_outputs == {"value": 1}
-    assert backend.requests == [request]
+    assert executor.requests == [request]
 
 
-def test_fake_backend_can_use_responder(tmp_path: pathlib.Path) -> None:
+def test_fake_executor_can_use_responder(tmp_path: pathlib.Path) -> None:
     def responder(
-        request: langgraph_codex.backends.BackendRequest,
-    ) -> langgraph_codex.backends.BackendResult:
-        return langgraph_codex.backends.BackendResult(
+        request: langgraph_codex.execution.ExecutionRequest,
+    ) -> langgraph_codex.execution.ExecutionResult:
+        return langgraph_codex.execution.ExecutionResult(
             stdout=f"prompt={request.prompt}",
             stderr="",
             returncode=0,
         )
 
-    backend = langgraph_codex.backends.FakeBackend(responder=responder)
-    result = backend.execute(
-        langgraph_codex.backends.BackendRequest(
+    executor = langgraph_codex.execution.FakeExecutor(responder=responder)
+    result = executor.execute(
+        langgraph_codex.execution.ExecutionRequest(
             workspace_path=tmp_path,
             prompt="abc",
         )
@@ -51,8 +50,8 @@ def test_fake_backend_can_use_responder(tmp_path: pathlib.Path) -> None:
     assert result.stdout == "prompt=abc"
 
 
-def test_codex_backend_builds_safe_exec_command(tmp_path: pathlib.Path) -> None:
-    backend = langgraph_codex.backends.CodexBackend(
+def test_codex_executor_builds_safe_exec_command(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.CodexExecutor(
         codex_bin="codex",
         model="gpt-5.5-mini",
         sandbox="workspace-write",
@@ -60,7 +59,7 @@ def test_codex_backend_builds_safe_exec_command(tmp_path: pathlib.Path) -> None:
         extra_args=["--json"],
     )
 
-    command = backend.build_command(tmp_path)
+    command = executor.build_command(tmp_path)
 
     assert command == [
         "codex",
@@ -79,16 +78,26 @@ def test_codex_backend_builds_safe_exec_command(tmp_path: pathlib.Path) -> None:
     ]
 
 
-def test_codex_backend_rejects_dangerous_flags(tmp_path: pathlib.Path) -> None:
-    backend = langgraph_codex.backends.CodexBackend(
+def test_codex_executor_can_use_cli_default_model(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.CodexExecutor(model=None)
+
+    command = executor.build_command(tmp_path)
+
+    assert "-m" not in command
+    assert "--skip-git-repo-check" in command
+    assert command[-1] == "-"
+
+
+def test_codex_executor_rejects_dangerous_flags(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.CodexExecutor(
         extra_args=["--dangerously-bypass-approvals-and-sandbox=true"]
     )
 
     with pytest.raises(ValueError, match="Refusing dangerous Codex flag"):
-        backend.build_command(tmp_path)
+        executor.build_command(tmp_path)
 
 
-def test_codex_backend_execute_passes_prompt_on_stdin(
+def test_codex_executor_execute_passes_prompt_on_stdin(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: pathlib.Path,
 ) -> None:
@@ -121,14 +130,14 @@ def test_codex_backend_execute_passes_prompt_on_stdin(
         "run_command",
         fake_run_command,
     )
-    backend = langgraph_codex.backends.CodexBackend(timeout_seconds=30)
-    request = langgraph_codex.backends.BackendRequest(
+    executor = langgraph_codex.execution.CodexExecutor(timeout_seconds=30)
+    request = langgraph_codex.execution.ExecutionRequest(
         workspace_path=tmp_path,
         prompt="Do work.",
         options={"timeout_seconds": 10},
     )
 
-    result = backend.execute(request)
+    result = executor.execute(request)
 
     assert result.stdout == "ok"
     assert calls[0]["input_text"] == "Do work."

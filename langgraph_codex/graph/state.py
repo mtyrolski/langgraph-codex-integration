@@ -1,7 +1,7 @@
 import pathlib
 import typing
 
-import langgraph_codex.backends.base as backend_base
+import langgraph_codex.execution.base as execution_base
 import langgraph_codex.utils.validation as validation_utils
 
 
@@ -16,9 +16,11 @@ class WorkflowState(typing.TypedDict, total=False):
     resources: list[str]
     artifacts: dict[str, typing.Any]
     metadata: dict[str, typing.Any]
+    execution_options: dict[str, typing.Any]
     backend_options: dict[str, typing.Any]
     rendered_prompt: str
-    backend_result: backend_base.BackendResult
+    execution_result: execution_base.ExecutionResult
+    backend_result: execution_base.ExecutionResult
     validation_result: validation_utils.ValidationResult
     review_result: dict[str, typing.Any]
     retry_count: int

@@ -1,31 +1,9 @@
-import abc
-import dataclasses
-import pathlib
-import typing
+import langgraph_codex.execution.base as execution_base
 
+BackendRequest = execution_base.BackendRequest
+BackendResult = execution_base.BackendResult
+ExecutionBackend = execution_base.ExecutionBackend
 
-@dataclasses.dataclass
-class BackendRequest:
-    workspace_path: pathlib.Path
-    prompt: str
-    metadata: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
-    options: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
-
-
-@dataclasses.dataclass
-class BackendResult:
-    stdout: str
-    stderr: str
-    returncode: int
-    structured_outputs: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
-    backend_response: typing.Any = None
-
-    @property
-    def succeeded(self) -> bool:
-        return self.returncode == 0
-
-
-class ExecutionBackend(abc.ABC):
-    @abc.abstractmethod
-    def execute(self, request: BackendRequest) -> BackendResult:
-        raise NotImplementedError
+ExecutionRequest = execution_base.ExecutionRequest
+ExecutionResult = execution_base.ExecutionResult
+Executor = execution_base.Executor
