@@ -5,6 +5,12 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      run-real-codex:
+        description: "Run opt-in real Codex examples and integration tests"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -46,6 +52,9 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Pylint
+        run: make pylint
+
       - name: Type check
         run: make type
 
@@ -75,11 +84,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --locked
 
-      - name: Run non-Codex examples
-        run: make examples
+      - name: Run offline examples
+        run: make examples-offline
 
       - name: Build distributions
-        run: make build
+        run: make package-check
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4
@@ -87,3 +96,43 @@ jobs:
           name: distributions
           path: dist/
           if-no-files-found: error
+
+  real-codex:
+    name: Real Codex smoke tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-real-codex }}
+    env:
+      LANGGRAPH_CODEX_RUN_REAL_CODEX: "1"
+      OPEN_AI_SECRET_KEY: ${{ secrets.OPEN_AI_SECRET_KEY }}
+      OPEN_AI_KEY_NAME: github-actions
+      OPEN_AI_MODEL: ""
+      OPENAI_API_KEY: ${{ secrets.OPEN_AI_SECRET_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --extra dev --locked
+
+      - name: Run real Codex checks
+        run: make check-codex
