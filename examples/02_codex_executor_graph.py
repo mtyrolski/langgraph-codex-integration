@@ -21,29 +21,25 @@ def main() -> None:
     result = graph.invoke(
         {
             "workspace_path": pathlib.Path.cwd(),
-            "task_title": "Quickstart with real CodexExecutor",
+            "task_title": "Inspect workspace",
             "objective": (
-                "Explain what happened in this graph run: deterministic context rendering, "
-                "real CodexExecutor execution, and deterministic review."
+                "Describe the visible workspace contents without changing files. "
+                "Focus on what this package appears to provide and mention that this is "
+                "a real CodexExecutor execution."
             ),
-            "context": {
-                "Input": "All state is explicit.",
-                "Executor": "This example uses CodexExecutor, not FakeExecutor.",
-            },
-            "constraints": ["Do not modify files.", "Keep the answer friendly but technical."],
-            "acceptance_criteria": [
-                "The graph returns a rendered prompt.",
-                "The graph returns an execution result.",
-                "The graph returns a deterministic review result.",
+            "constraints": [
+                "Do not modify files.",
+                "Keep the answer grounded in visible files.",
+                "End with the exact marker CODEX_WORKSPACE_INSPECTION_COMPLETE.",
             ],
         }
     )
     execution_result = result["execution_result"]
     print_section("Rendered prompt", result["rendered_prompt"])
-    print_section("Review result", result["review_result"])
     print_section("Execution return code", execution_result.returncode)
     print_section("Execution stdout", execution_result.stdout)
     print_section("Execution stderr", execution_result.stderr or "<empty>")
+    print_section("Review result", result["review_result"])
 
 
 if __name__ == "__main__":

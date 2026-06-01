@@ -11,7 +11,7 @@ def main() -> None:
             "task_title": "Prepare a deterministic handoff",
             "objective": "Render a prompt from explicit workflow state.",
             "context": {"Current State": "The workflow has structured context only."},
-            "constraints": ["Do not call an execution backend."],
+            "constraints": ["Do not call an executor."],
         }
     )
     print(result["rendered_prompt"])

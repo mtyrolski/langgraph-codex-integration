@@ -38,10 +38,10 @@ jobs:
         run: uv sync --extra dev --locked
 
       - name: Validate
-        run: make format-check lint type test
+        run: make format-check lint pylint type test
 
       - name: Build distributions
-        run: make build
+        run: make package-check
 
       - name: Publish distributions
         run: uv publish
