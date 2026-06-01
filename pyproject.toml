@@ -40,7 +40,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling==1.21.1"]
+requires = ["hatchling==1.29.0"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
