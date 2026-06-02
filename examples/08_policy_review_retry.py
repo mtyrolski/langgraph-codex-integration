@@ -4,7 +4,7 @@ import pathlib
 import tempfile
 import typing
 
-import langgraph_codex.codex_runtime as codex_runtime
+import langgraph_codex.runtime as runtime
 
 import langgraph_codex.execution
 import langgraph_codex.graph
@@ -29,7 +29,7 @@ def print_workspace_files(workspace_path: pathlib.Path) -> None:
     files = sorted(path for path in workspace_path.rglob("*") if path.is_file())
     for path in files:
         relative_path = path.relative_to(workspace_path)
-        codex_runtime.print_section(f"Workspace file: {relative_path}", read_text(path))
+        runtime.print_section(f"Workspace file: {relative_path}", read_text(path))
 
 
 def write_policy(workspace_path: pathlib.Path) -> pathlib.Path:
@@ -121,17 +121,17 @@ def validate_risk_register(
 
 
 def main() -> None:
-    codex_runtime.ensure_codex_authorized()
-    codex_runtime.print_authorization_status()
+    runtime.ensure_codex_authorized()
+    runtime.print_authorization_status()
     with tempfile.TemporaryDirectory(prefix="langgraph-codex-policy-") as temporary_directory:
         workspace_path = pathlib.Path(temporary_directory)
         write_policy(workspace_path)
 
-        codex_runtime.print_section("Scenario", "Real CodexExecutor policy review with retry.")
-        codex_runtime.print_section("Temporary Workspace", workspace_path)
+        runtime.print_section("Scenario", "Real CodexExecutor policy review with retry.")
+        runtime.print_section("Temporary Workspace", workspace_path)
         print_workspace_files(workspace_path)
 
-        executor = codex_runtime.create_codex_executor()
+        executor = runtime.create_codex_executor()
         graph = langgraph_codex.graph.build_retry_graph(
             executor=executor,
             validators=[validate_risk_register],
@@ -156,13 +156,13 @@ def main() -> None:
         )
 
         execution_result = result["execution_result"]
-        codex_runtime.print_section("Deterministic Artifacts", format_json(result["artifacts"]))
-        codex_runtime.print_section("Rendered Prompt", result["rendered_prompt"])
-        codex_runtime.print_section("Retry Count", result["retry_count"])
-        codex_runtime.print_section("Review Result", format_json(result["review_result"]))
-        codex_runtime.print_section("Execution Return Code", execution_result.returncode)
-        codex_runtime.print_section("Execution Stdout", execution_result.stdout or "(empty)")
-        codex_runtime.print_section("Execution Stderr", execution_result.stderr or "(empty)")
+        runtime.print_section("Deterministic Artifacts", format_json(result["artifacts"]))
+        runtime.print_section("Rendered Prompt", result["rendered_prompt"])
+        runtime.print_section("Retry Count", result["retry_count"])
+        runtime.print_section("Review Result", format_json(result["review_result"]))
+        runtime.print_section("Execution Return Code", execution_result.returncode)
+        runtime.print_section("Execution Stdout", execution_result.stdout or "(empty)")
+        runtime.print_section("Execution Stderr", execution_result.stderr or "(empty)")
         print_workspace_files(workspace_path)
 
 

@@ -6,7 +6,7 @@ import pathlib
 import tempfile
 import typing
 
-import langgraph_codex.codex_runtime as codex_runtime
+import langgraph_codex.runtime as runtime
 
 import langgraph_codex.execution
 import langgraph_codex.graph
@@ -188,8 +188,8 @@ def validate_triage_report(
 
 
 def main() -> None:
-    codex_runtime.ensure_codex_authorized()
-    codex_runtime.print_authorization_status()
+    runtime.ensure_codex_authorized()
+    runtime.print_authorization_status()
     with tempfile.TemporaryDirectory(prefix="langgraph-codex-feedback-") as temporary_directory:
         workspace_path = pathlib.Path(temporary_directory)
         feedback_path = write_feedback_csv(workspace_path)
@@ -202,7 +202,7 @@ def main() -> None:
         print_section("Generated Files Before Execution")
         print_workspace_files(workspace_path)
 
-        executor = codex_runtime.create_codex_executor()
+        executor = runtime.create_codex_executor()
         graph = langgraph_codex.graph.build_execution_graph(
             executor=executor,
             context_builder=build_feedback_context,
