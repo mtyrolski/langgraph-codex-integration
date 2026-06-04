@@ -1,40 +1,32 @@
 # Examples
 
-All examples are runnable with `uv run python <file>`. Examples 00 and 01 are offline and run in normal CI. Examples 02-10 use the real `CodexExecutor` and require the Codex CLI to be installed and authenticated.
+The examples show the intended integration shape: keep your LangGraph app, then replace one bounded node with a Codex-backed node.
 
-## First Run
+Run the offline example:
 
 ```bash
 make examples
 ```
 
-## Example Index
+Run the real Codex example after installing and authenticating the Codex CLI:
 
-| File | Scenario | Shows |
+```bash
+make examples-codex
+```
+
+## Index
+
+| File | Runtime | Shows |
 | --- | --- | --- |
-| `00_context_only_graph.py` | Render a prompt from explicit state | Context-only graph |
-| `01_fake_executor_graph.py` | Run a fake executor | Executor abstraction |
-| `02_codex_executor_graph.py` | Run real Codex | Opt-in `codex exec` executor |
-| `03_retry_graph.py` | Retry after execution failure | Real executor with deterministic retry routing |
-| `04_custom_validation.py` | Validate execution output | Real executor with custom validators |
-| `05_quickstart.py` | Minimal end-to-end flow | Real execution graph usage |
-| `06_customer_feedback_triage.py` | Triage customer feedback CSV data | Real executor summary with deterministic context |
-| `07_dataset_quality_profile.py` | Profile order data quality | Real executor data inspection |
-| `08_policy_review_retry.py` | Review a policy draft | Real executor retry until structured output passes validation |
-| `09_research_digest.py` | Synthesize research notes | Real executor note digest workflow |
-| `10_service_config_review.py` | Review JSON service configuration | Real executor remediation validation |
+| `00_existing_langgraph_graph.py` | Offline | A normal `langgraph.graph.StateGraph` where one node is backed by `create_codex_node` and `FakeExecutor`. |
+| `01_real_codex_node.py` | Real Codex | A normal LangGraph service-config review graph with deterministic preprocessing, a Codex remediation node, and deterministic validation. |
 
-## Real-Task Pattern
+## Pattern
 
-The real Codex examples follow the same structure:
+1. Build context with deterministic Python.
+2. Call Codex through one explicit graph node.
+3. Store the executor result in application state.
+4. Validate files or structured output deterministically.
+5. Route or finish from your own LangGraph graph.
 
-1. Create a temporary sample workspace.
-2. Read real files from that workspace with deterministic Python.
-3. Store explicit context, artifacts, files, and metadata in graph state.
-4. Render a stable Markdown prompt.
-5. Call `CodexExecutor` for the execution step.
-6. Validate outputs deterministically.
-
-Run the offline examples with `make examples`. Run the real Codex examples with `make examples-codex`.
-
-See `docs/codex-authorization.md` for `.env`, `OPEN_AI_SECRET_KEY`, `OPEN_AI_KEY_NAME`, `OPEN_AI_MODEL`, and multi-agent safety guidance.
+See [docs/design-philosophy.md](../docs/design-philosophy.md) for the reasoning behind this shape and [docs/codex-authorization.md](../docs/codex-authorization.md) for local and CI authorization.

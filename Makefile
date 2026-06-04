@@ -42,6 +42,14 @@ lint-fix: ## Run ruff and apply safe lint fixes.
 type: ## Run mypy in strict mode.
 	$(UV) run mypy
 
+.PHONY: pyright
+pyright: ## Run pyright static analysis.
+	$(UV) run pyright
+
+.PHONY: compile
+compile: ## Compile Python source, examples, and tests.
+	$(UV) run python -m compileall -q langgraph_codex examples tests
+
 .PHONY: test
 test: ## Run the pytest suite.
 	$(UV) run pytest
@@ -55,20 +63,11 @@ examples: examples-offline ## Run offline examples that do not require Codex.
 
 .PHONY: examples-offline
 examples-offline: ## Run examples that do not require Codex.
-	$(UV) run python examples/00_context_only_graph.py
-	$(UV) run python examples/01_fake_executor_graph.py
+	$(UV) run python examples/00_existing_langgraph_graph.py
 
 .PHONY: examples-codex
 examples-codex: ## Run opt-in examples against real Codex.
-	$(UV) run python examples/02_codex_executor_graph.py
-	$(UV) run python examples/03_retry_graph.py
-	$(UV) run python examples/04_custom_validation.py
-	$(UV) run python examples/05_quickstart.py
-	$(UV) run python examples/06_customer_feedback_triage.py
-	$(UV) run python examples/07_dataset_quality_profile.py
-	$(UV) run python examples/08_policy_review_retry.py
-	$(UV) run python examples/09_research_digest.py
-	$(UV) run python examples/10_service_config_review.py
+	$(UV) run python examples/01_real_codex_node.py
 
 .PHONY: build
 build: ## Build wheel and source distribution.
@@ -78,8 +77,11 @@ build: ## Build wheel and source distribution.
 package-check: build ## Validate built distribution metadata.
 	$(UV) run twine check dist/*
 
+.PHONY: quality
+quality: format-check lint pylint type pyright compile ## Run static quality checks.
+
 .PHONY: check
-check: format-check lint pylint type test package-check examples ## Run the full local validation suite.
+check: quality test package-check examples ## Run the full local validation suite.
 
 .PHONY: check-codex
 check-codex: examples-codex test-codex ## Run opt-in real Codex examples and integration tests.

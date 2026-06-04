@@ -19,10 +19,66 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  UV_VERSION: "0.9.16"
+
 jobs:
-  quality:
-    name: Python ${{ matrix.python-version }}
+  workflows:
+    name: Workflow lint
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Lint GitHub Actions workflows
+        uses: rhysd/actionlint@v1.7.12
+
+  quality:
+    name: Static quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --extra dev --locked
+
+      - name: Check formatting
+        run: make format-check
+
+      - name: Ruff
+        run: make lint
+
+      - name: Pylint
+        run: make pylint
+
+      - name: Mypy
+        run: make type
+
+      - name: Pyright
+        run: make pyright
+
+      - name: Compile Python files
+        run: make compile
+
+  tests:
+    name: Tests Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -38,31 +94,20 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Install dependencies
         run: uv sync --extra dev --locked
 
-      - name: Check formatting
-        run: make format-check
-
-      - name: Lint
-        run: make lint
-
-      - name: Pylint
-        run: make pylint
-
-      - name: Type check
-        run: make type
-
-      - name: Test
+      - name: Run tests
         run: make test
 
-  package:
-    name: Build package
+  examples:
+    name: Offline examples
     runs-on: ubuntu-latest
     needs: quality
 
@@ -76,8 +121,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
 
@@ -87,7 +133,31 @@ jobs:
       - name: Run offline examples
         run: make examples-offline
 
-      - name: Build distributions
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    needs: [workflows, quality, tests, examples]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --extra dev --locked
+
+      - name: Build and validate distributions
         run: make package-check
 
       - name: Upload distributions
@@ -126,8 +196,9 @@ jobs:
         run: npm install -g @openai/codex
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
 

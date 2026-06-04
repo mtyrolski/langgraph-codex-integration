@@ -1,8 +1,8 @@
 import pathlib
 import shutil
 
-import langgraph_codex.execution
 import langgraph_codex.utils.open_ai_env as open_ai_env
+from langgraph_codex.execution import CodexExecutor
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENV_PATH = REPOSITORY_ROOT / ".env"
@@ -24,16 +24,16 @@ def ensure_codex_authorized() -> None:
         )
 
 
-def create_codex_executor(timeout_seconds: int = 300) -> langgraph_codex.execution.CodexExecutor:
+def create_codex_executor(timeout_seconds: int = 300) -> CodexExecutor:
     environment = load_local_env()
     ensure_codex_authorized()
     if environment.model:
-        return langgraph_codex.execution.CodexExecutor(
+        return CodexExecutor(
             model=environment.model,
             timeout_seconds=timeout_seconds,
         )
 
-    return langgraph_codex.execution.CodexExecutor(
+    return CodexExecutor(
         model=None,
         timeout_seconds=timeout_seconds,
     )

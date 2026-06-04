@@ -143,3 +143,41 @@ def test_codex_executor_execute_passes_prompt_on_stdin(
     assert calls[0]["input_text"] == "Do work."
     assert calls[0]["timeout_seconds"] == 10
     assert calls[0]["args"][-1] == "-"
+
+
+@pytest.mark.parametrize(
+    ("timeout", "error_type", "message"),
+    [
+        ("slow", TypeError, "timeout_seconds must be int or float"),
+        (0, ValueError, "timeout_seconds must be positive"),
+    ],
+)
+def test_codex_executor_rejects_invalid_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    timeout: object,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    def unexpected_run_command(
+        _args: list[str],
+        _cwd: str | pathlib.Path,
+        timeout_seconds: int | float | None = None,
+        input_text: str | None = None,
+    ) -> langgraph_codex.utils.subprocess.CommandResult:
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setattr(
+        langgraph_codex.utils.subprocess,
+        "run_command",
+        unexpected_run_command,
+    )
+    executor = langgraph_codex.execution.CodexExecutor()
+    request = langgraph_codex.execution.ExecutionRequest(
+        workspace_path=tmp_path,
+        prompt="Do work.",
+        options={"timeout_seconds": timeout},
+    )
+
+    with pytest.raises(error_type, match=message):
+        executor.execute(request)

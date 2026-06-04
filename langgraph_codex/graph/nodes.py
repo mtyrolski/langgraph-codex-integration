@@ -12,6 +12,12 @@ import langgraph_codex.utils.workspace as workspace_utils
 
 StateUpdate = dict[str, typing.Any]
 ContextBuilder = typing.Callable[[graph_state.WorkflowState], StateUpdate]
+StateMapping = typing.Mapping[str, typing.Any]
+PromptBuilder = typing.Callable[[typing.Any], str]
+WorkspacePathBuilder = typing.Callable[[typing.Any], str | pathlib.Path | None]
+MetadataBuilder = typing.Callable[[typing.Any], dict[str, typing.Any]]
+OptionsBuilder = typing.Callable[[typing.Any], dict[str, typing.Any]]
+ResultMapper = typing.Callable[[execution_base.ExecutionResult], StateUpdate]
 
 
 def build_context(state: graph_state.WorkflowState) -> StateUpdate:
@@ -100,6 +106,32 @@ def create_backend_node(
     return create_execution_node(backend)
 
 
+def create_codex_node(  # pylint: disable=too-many-arguments
+    executor: execution_base.Executor,
+    *,
+    prompt_builder: PromptBuilder,
+    workspace_path: str | pathlib.Path | WorkspacePathBuilder | None = None,
+    result_key: str = "codex_result",
+    metadata_builder: MetadataBuilder | None = None,
+    options_builder: OptionsBuilder | None = None,
+    result_mapper: ResultMapper | None = None,
+) -> typing.Callable[[StateMapping], StateUpdate]:
+    def node(state: StateMapping) -> StateUpdate:
+        request = execution_base.ExecutionRequest(
+            workspace_path=_resolve_node_workspace_path(state, workspace_path),
+            prompt=prompt_builder(state),
+            metadata=_build_node_mapping(state, metadata_builder),
+            options=_build_node_mapping(state, options_builder),
+        )
+        result = executor.execute(request)
+        if result_mapper is not None:
+            return result_mapper(result)
+
+        return {result_key: result}
+
+    return node
+
+
 def create_review_node(
     validators: list[validation_utils.Validator] | None = None,
 ) -> ContextBuilder:
@@ -146,3 +178,25 @@ def serialize_state_value(value: typing.Any) -> typing.Any:
         return [serialize_state_value(item) for item in value]
 
     return value
+
+
+def _resolve_node_workspace_path(
+    state: StateMapping,
+    workspace_path: str | pathlib.Path | WorkspacePathBuilder | None,
+) -> pathlib.Path:
+    if callable(workspace_path):
+        return workspace_utils.resolve_workspace_path(workspace_path(state))
+    if workspace_path is not None:
+        return workspace_utils.resolve_workspace_path(workspace_path)
+
+    return workspace_utils.resolve_workspace_path(state.get("workspace_path"))
+
+
+def _build_node_mapping(
+    state: StateMapping,
+    builder: MetadataBuilder | OptionsBuilder | None,
+) -> dict[str, typing.Any]:
+    if builder is None:
+        return {}
+
+    return dict(builder(state))

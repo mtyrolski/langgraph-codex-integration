@@ -1,7 +1,17 @@
 import pathlib
+import typing
+
+import langgraph.graph
 
 import langgraph_codex.execution
 import langgraph_codex.graph
+
+
+class AppState(typing.TypedDict, total=False):
+    workspace_path: pathlib.Path
+    ticket: str
+    codex_result: langgraph_codex.execution.ExecutionResult
+    answer: str
 
 
 def test_context_only_graph_renders_prompt(tmp_path: pathlib.Path) -> None:
@@ -87,3 +97,76 @@ def test_retry_graph_stops_after_success(tmp_path: pathlib.Path) -> None:
     assert len(executor.requests) == 2
     assert result["retry_count"] == 1
     assert result["validation_result"].passed is True
+
+
+def test_codex_node_can_replace_node_in_existing_langgraph(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(stdout="priority=medium")
+
+    def load_ticket(_state: AppState) -> dict[str, str]:
+        return {"ticket": "Billing export is missing purchase order references."}
+
+    def finalize(state: AppState) -> dict[str, str]:
+        codex_result = typing.cast(
+            langgraph_codex.execution.ExecutionResult,
+            state.get("codex_result"),
+        )
+        return {"answer": codex_result.stdout}
+
+    graph: typing.Any = langgraph.graph.StateGraph(AppState)
+    graph.add_node("load_ticket", load_ticket)
+    graph.add_node(
+        "codex_triage",
+        langgraph_codex.graph.create_codex_node(
+            executor=executor,
+            prompt_builder=lambda state: f"Triage this support ticket: {state['ticket']}",
+            workspace_path=lambda state: typing.cast(pathlib.Path, state.get("workspace_path")),
+        ),
+    )
+    graph.add_node("finalize", finalize)
+    graph.add_edge(langgraph.graph.START, "load_ticket")
+    graph.add_edge("load_ticket", "codex_triage")
+    graph.add_edge("codex_triage", "finalize")
+    graph.add_edge("finalize", langgraph.graph.END)
+
+    result = graph.compile().invoke({"workspace_path": tmp_path})
+
+    assert result["answer"] == "priority=medium"
+    assert executor.requests[0].workspace_path == tmp_path.resolve()
+    assert executor.requests[0].prompt == (
+        "Triage this support ticket: Billing export is missing purchase order references."
+    )
+
+
+def test_codex_node_can_map_result_to_application_state(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(stdout="accepted")
+    node = langgraph_codex.graph.create_codex_node(
+        executor=executor,
+        prompt_builder=lambda _state: "Review the proposed change.",
+        workspace_path=tmp_path,
+        result_mapper=lambda result: {"answer": result.stdout.upper()},
+    )
+
+    result = node({})
+
+    assert result == {"answer": "ACCEPTED"}
+
+
+def test_codex_node_passes_metadata_options_and_custom_result_key(
+    tmp_path: pathlib.Path,
+) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(stdout="done")
+    node = langgraph_codex.graph.create_codex_node(
+        executor=executor,
+        prompt_builder=lambda state: f"Process {state['item_id']}",
+        workspace_path=tmp_path,
+        result_key="agent_result",
+        metadata_builder=lambda state: {"item_id": state["item_id"]},
+        options_builder=lambda _state: {"timeout_seconds": 15},
+    )
+
+    result = node({"item_id": "A-42"})
+
+    assert result["agent_result"].stdout == "done"
+    assert executor.requests[0].metadata == {"item_id": "A-42"}
+    assert executor.requests[0].options == {"timeout_seconds": 15}
+    assert executor.requests[0].prompt == "Process A-42"

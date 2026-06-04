@@ -1,27 +1,17 @@
-# langgraph_codex
+# langgraph-codex
 
-`langgraph_codex` is a small infrastructure package for deterministic LangGraph workflows that can optionally delegate one node to Codex.
+Use your own LangGraph. Replace one bounded node with Codex when deterministic Python is not enough.
 
-It is not an agent framework, chat model wrapper, repository automation toolkit, or testing workflow. The package keeps orchestration, state, validation, and routing explicit so applications can use Codex as one execution step without making the rest of the workflow depend on Codex.
+`langgraph-codex` keeps orchestration explicit:
 
-```text
-LangGraph = orchestration
-Deterministic Python nodes = state transformations
-Codex = optional executor
-Validation = deterministic
-Routing = deterministic
-State = explicit and inspectable
-```
+- LangGraph owns graph structure, state, routing, persistence, and checkpoints.
+- Python owns deterministic context building and validation.
+- Codex is one executor node with a clear prompt and workspace.
+- Your application owns domain policy, memory, UI, and deployment.
 
-## When To Use It
-
-Use `langgraph_codex` when you want a directed workflow where most steps are deterministic, but one or more steps may need a powerful executor.
-
-Good fits include document processing, data inspection, research workflows, content pipelines, operations runbooks, knowledge-base maintenance, configuration analysis, and software workflows. The package does not assume any of those domains.
+The package is intentionally small. It is not a chat framework, hidden agent runtime, repository automation product, or model abstraction layer.
 
 ## Install
-
-With `uv`:
 
 ```bash
 uv add langgraph-codex
@@ -31,228 +21,152 @@ For local development:
 
 ```bash
 uv sync --extra dev
-```
-
-Run checks:
-
-```bash
 make check
 ```
 
-The Makefile wraps the project’s `uv` workflows. Useful targets include `make sync`, `make format`, `make lint`, `make type`, `make test`, `make build`, `make examples`, `make examples-codex`, `make test-codex`, and `make clean`.
+## Quickstart: Replace One LangGraph Node
 
-`make check` enforces formatting, Ruff, Pylint at `10.00/10`, strict mypy, pytest, wheel/sdist build, Twine package metadata validation, and the offline examples.
-
-Real Codex validation is opt-in. Use `make examples-codex` for examples 02-10, `make test-codex` for real Codex integration tests, or `make check-codex` for both. The integration tests are skipped unless `LANGGRAPH_CODEX_RUN_REAL_CODEX=1` is set.
-
-See [docs/codex-authorization.md](docs/codex-authorization.md) for local `.env`, `OPEN_AI_SECRET_KEY`, `OPEN_AI_KEY_NAME`, `OPEN_AI_MODEL`, CI secrets, and multi-agent safety guidance.
-
-## Quickstart With FakeExecutor
-
-The default development path does not require Codex.
+This is the primary integration path. Build a normal `langgraph.graph.StateGraph`, then use `create_codex_node` for the step that needs Codex-style execution.
 
 ```python
 import pathlib
+import typing
 
-import langgraph_codex.execution
-import langgraph_codex.graph
+import langgraph.graph
+
+from langgraph_codex.execution import FakeExecutor
+from langgraph_codex.graph import create_codex_node
 
 
-executor = langgraph_codex.execution.FakeExecutor(stdout="completed")
-graph = langgraph_codex.graph.build_execution_graph(executor=executor)
+class SupportState(typing.TypedDict, total=False):
+    workspace_path: pathlib.Path
+    ticket: str
+    codex_result: object
+    reply: str
 
-result = graph.invoke(
-    {
-        "workspace_path": pathlib.Path.cwd(),
-        "task_title": "Process structured inputs",
-        "objective": "Run a graph with explicit state and a fake executor.",
-        "context": {"Input": "Any domain-specific context can live here."},
-    }
+
+def load_ticket(_state: SupportState) -> dict[str, str]:
+    return {"ticket": "Billing export is missing purchase order references."}
+
+
+def finalize(state: SupportState) -> dict[str, str]:
+    return {"reply": state["codex_result"].stdout}
+
+
+graph = langgraph.graph.StateGraph(SupportState)
+graph.add_node("load_ticket", load_ticket)
+graph.add_node(
+    "draft_reply",
+    create_codex_node(
+        executor=FakeExecutor(stdout="Priority: medium. Area: billing exports."),
+        prompt_builder=lambda state: f"Draft a support response for: {state['ticket']}",
+        workspace_path=lambda state: state["workspace_path"],
+    ),
 )
+graph.add_node("finalize", finalize)
+graph.add_edge(langgraph.graph.START, "load_ticket")
+graph.add_edge("load_ticket", "draft_reply")
+graph.add_edge("draft_reply", "finalize")
+graph.add_edge("finalize", langgraph.graph.END)
 
-print(result["execution_result"].stdout)
-print(result["review_result"]["message"])
+result = graph.compile().invoke({"workspace_path": pathlib.Path.cwd()})
+print(result["reply"])
 ```
 
-## Context-Only Graph
+Swap `FakeExecutor` for `CodexExecutor` when you want a real `codex exec` run.
 
-Prompt rendering and state preparation work without an execution step.
+## Real Codex
+
+`CodexExecutor` shells out to the Codex CLI, passes the prompt on stdin, captures stdout, stderr, return code, timeout state, and refuses known dangerous bypass flags.
 
 ```python
-import pathlib
+from langgraph_codex.execution import CodexExecutor
 
-import langgraph_codex.graph
-
-
-graph = langgraph_codex.graph.build_context_only_graph()
-result = graph.invoke(
-    {
-        "workspace_path": pathlib.Path.cwd(),
-        "task_title": "Render context",
-        "objective": "Create stable Markdown from explicit workflow state.",
-        "constraints": ["Omit empty sections."],
-    }
-)
-
-print(result["rendered_prompt"])
+executor = CodexExecutor(timeout_seconds=300)
 ```
 
-## Real Codex Executor
-
-Codex is opt-in. `CodexExecutor` shells out to `codex exec`, captures stdout, stderr, return code, and timeout state, and refuses dangerous bypass flags.
-
-```python
-import pathlib
-
-import langgraph_codex.execution
-import langgraph_codex.graph
-
-
-executor = langgraph_codex.execution.CodexExecutor()
-graph = langgraph_codex.graph.build_execution_graph(executor=executor)
-
-result = graph.invoke(
-    {
-        "workspace_path": pathlib.Path.cwd(),
-        "task_title": "Inspect workspace",
-        "objective": "Summarize the workspace without changing files.",
-    }
-)
-
-print(result["execution_result"].stdout)
-```
-
-## Explicit State
-
-The default state is a `TypedDict` with generic workflow fields:
-
-- `workspace_path`
-- `task_title`
-- `objective`
-- `context`
-- `constraints`
-- `artifacts`
-- `metadata`
-- `rendered_prompt`
-- `execution_result`
-- `validation_result`
-- `review_result`
-- `retry_count`
-- `max_retries`
-
-Domain-specific fields belong in your application state or in `metadata` and `artifacts`.
-
-## Prompt Rendering
-
-`utils.prompts` renders stable Markdown from structured data. It supports title, objective, context sections, constraints, acceptance criteria, files, resources, artifacts, and additional instructions. Empty sections are omitted.
-
-```python
-import langgraph_codex.utils.prompts
-
-
-prompt = langgraph_codex.utils.prompts.render_prompt(
-    langgraph_codex.utils.prompts.PromptSpec(
-        title="Inspect inputs",
-        objective="Find inconsistencies in the supplied records.",
-        constraints=["Do not mutate files."],
-    )
-)
-```
-
-## Validation
-
-Validation is pluggable and deterministic. Built-in helpers cover generic checks such as required artifacts, file existence, JSON artifacts, and arbitrary command execution. Domain-specific workflows should provide their own validators.
-
-```python
-import pathlib
-
-import langgraph_codex.execution
-import langgraph_codex.graph
-import langgraph_codex.utils.validation
-
-
-executor = langgraph_codex.execution.FakeExecutor()
-graph = langgraph_codex.graph.build_execution_graph(
-    executor=executor,
-    validators=[langgraph_codex.utils.validation.require_files(["README.md"])],
-)
-
-result = graph.invoke({"workspace_path": pathlib.Path.cwd()})
-print(result["validation_result"].passed)
-```
-
-## Retry Routing
-
-`build_retry_graph()` retries only through deterministic routing:
-
-```text
-START -> build_context -> render_prompt -> execute -> review -> router
-router success -> END
-router retry -> retry_node -> render_prompt -> execute
-router fail -> END
-```
-
-The router uses only `validation_result`, `retry_count`, and `max_retries`.
-
-## Architecture
-
-- `execution.base`: `ExecutionRequest`, `ExecutionResult`, and `Executor`.
-- `execution.fake`: testable fake executor for local development, CI, and examples.
-- `execution.codex`: `codex exec` executor with safe command construction and timeout handling.
-- `utils.prompts`: deterministic Markdown prompt rendering.
-- `utils.validation`: composable deterministic validators.
-- `utils.workspace`: workspace path normalization and validation.
-- `graph.state`: explicit generic workflow state.
-- `graph.nodes`: reusable deterministic nodes.
-- `graph.builders`: context-only, execution, and retry graph builders.
-
-## Examples
-
-Run the offline examples first. They do not require Codex and are included in normal CI:
+Real Codex examples and integration tests are opt-in because they require the Codex CLI and credentials.
 
 ```bash
-uv run python examples/00_context_only_graph.py
-uv run python examples/01_fake_executor_graph.py
-```
-
-Examples 02-10 use `CodexExecutor` and are excluded from offline CI. Run them only when the Codex CLI is installed and authenticated:
-
-```bash
-uv run python examples/02_codex_executor_graph.py
-uv run python examples/03_retry_graph.py
-uv run python examples/04_custom_validation.py
-uv run python examples/05_quickstart.py
-uv run python examples/06_customer_feedback_triage.py
-uv run python examples/07_dataset_quality_profile.py
-uv run python examples/08_policy_review_retry.py
-uv run python examples/09_research_digest.py
-uv run python examples/10_service_config_review.py
-```
-
-Or use the Makefile targets:
-
-```bash
-make examples
 make examples-codex
 make test-codex
 ```
 
+See [docs/codex-authorization.md](docs/codex-authorization.md) for `.env`, `OPEN_AI_SECRET_KEY`, `OPEN_AI_KEY_NAME`, `OPEN_AI_MODEL`, GitHub Actions secrets, and CI guidance.
+
+## Convenience Builders
+
+If you want a complete starter graph, the package still includes builders:
+
+- `build_context_only_graph()`
+- `build_execution_graph()`
+- `build_retry_graph()`
+
+They are useful for tests, quick starts, and simple workflows. Production applications will usually prefer `create_codex_node` inside their own graph.
+
+## Validation
+
+Validation is deterministic and application-owned. Built-in helpers cover common checks:
+
+```python
+from langgraph_codex.utils.validation import require_files
+
+validators = [require_files(["remediation_plan.md"])]
+```
+
+Recommended shape:
+
+```text
+prepare context -> call Codex node -> validate deterministically -> route
+```
+
+Use file checks, JSON checks, command checks, checksums, tests, and domain assertions before downstream systems consume Codex output.
+
+## Examples
+
+The examples are intentionally few:
+
+- [examples/00_existing_langgraph_graph.py](examples/00_existing_langgraph_graph.py): offline, CI-safe, plain LangGraph graph with one Codex-backed node using `FakeExecutor`.
+- [examples/01_real_codex_node.py](examples/01_real_codex_node.py): real Codex graph with deterministic preprocessing and validation.
+
+Run:
+
+```bash
+make examples
+make examples-codex
+```
+
 ## CI/CD
 
-The repository includes GitHub Actions workflows for:
+The repository validates:
 
-- Pull request and main-branch CI across Python 3.10, 3.11, 3.12, and 3.13.
-- Formatting, Ruff, Pylint `10.00/10`, strict typing, tests, package build, Twine package checks, and offline example execution.
-- Optional workflow-dispatch real Codex checks when `run-real-codex` is enabled and `OPEN_AI_SECRET_KEY` is configured as a GitHub Actions secret.
-- Release publishing through `uv publish` with PyPI trusted publishing.
-- Weekly Dependabot updates for GitHub Actions and `uv` dependencies.
+- GitHub Actions workflow syntax with actionlint;
+- Ruff formatting and linting;
+- Pylint with `10.00/10`;
+- strict mypy;
+- Python compile checks;
+- pytest across Python 3.10, 3.11, 3.12, and 3.13;
+- offline examples;
+- wheel and source distribution build plus Twine metadata validation;
+- optional real Codex smoke checks through workflow dispatch.
 
-Configure the `pypi` GitHub environment and PyPI trusted publisher before using the release workflow.
+Release publishing uses PyPI trusted publishing through the `pypi` GitHub environment.
 
-## Non-Goals
+## Documentation
 
-`langgraph_codex` does not provide hidden memory, chat history, git automation, test orchestration, checkpoint persistence, streaming, or a model abstraction. Those can be added by applications as explicit state, validators, graph nodes, or custom executors.
+- [Design Philosophy](docs/design-philosophy.md)
+- [Codex Authorization](docs/codex-authorization.md)
 
-## Future Extensions
+## Development
 
-Useful additions could include an MCP executor, app-server executor, streaming result adapter, checkpoint examples, richer structured output handling, and a small gallery of domain-neutral workflow recipes.
+```bash
+make sync
+make format
+make check
+```
+
+Useful targets include `make quality`, `make test`, `make package-check`, `make examples`, `make examples-codex`, and `make clean`.
+
+## License
+
+MIT
