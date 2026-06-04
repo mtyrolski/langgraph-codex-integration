@@ -1,15 +1,15 @@
 # langgraph-codex
 
-Use your own LangGraph. Replace one bounded node with Codex when deterministic Python is not enough.
+Put Codex inside the LangGraph you already own.
 
-`langgraph-codex` keeps orchestration explicit:
+`langgraph-codex` is a small adapter library for one practical pattern: keep your deterministic graph, then replace one bounded node with a Codex-backed node when ordinary Python is not enough.
 
-- LangGraph owns graph structure, state, routing, persistence, and checkpoints.
-- Python owns deterministic context building and validation.
-- Codex is one executor node with a clear prompt and workspace.
-- Your application owns domain policy, memory, UI, and deployment.
+- LangGraph owns orchestration, state, routing, persistence, and checkpoints.
+- Python owns parsing, context building, policy, and validation.
+- Codex owns one explicit execution step with a clear prompt and workspace.
+- Your application stays in control.
 
-The package is intentionally small. It is not a chat framework, hidden agent runtime, repository automation product, or model abstraction layer.
+It is not a chat framework, hidden agent runtime, repository automation product, or broad model abstraction layer.
 
 ## Install
 
@@ -24,9 +24,9 @@ uv sync --extra dev
 make check
 ```
 
-## Quickstart: Replace One LangGraph Node
+## Start Here: Codex As One LangGraph Node
 
-This is the primary integration path. Build a normal `langgraph.graph.StateGraph`, then use `create_codex_node` for the step that needs Codex-style execution.
+This is the main use case. Build a normal `langgraph.graph.StateGraph`, authorize Codex once, and use `create_codex_node` only for the node that needs agentic execution.
 
 ```python
 import pathlib
@@ -34,79 +34,97 @@ import typing
 
 import langgraph.graph
 
-from langgraph_codex.execution import FakeExecutor
+from langgraph_codex.execution import ExecutionResult
 from langgraph_codex.graph import create_codex_node
+from langgraph_codex.runtime import create_codex_executor, ensure_codex_authorized
 
 
-class SupportState(typing.TypedDict, total=False):
+class ReviewState(typing.TypedDict, total=False):
     workspace_path: pathlib.Path
-    ticket: str
-    codex_result: object
-    reply: str
+    config_summary: str
+    codex_result: ExecutionResult
+    validation_message: str
 
 
-def load_ticket(_state: SupportState) -> dict[str, str]:
-    return {"ticket": "Billing export is missing purchase order references."}
+def inspect_config(_state: ReviewState) -> dict[str, str]:
+    return {
+        "config_summary": (
+            "retry_attempts=6, timeout_seconds=45, batch_size=500. "
+            "Recommended limits are 3, 30, and 250."
+        )
+    }
 
 
-def finalize(state: SupportState) -> dict[str, str]:
-    return {"reply": state["codex_result"].stdout}
+def prompt_for_codex(state: ReviewState) -> str:
+    return "\n".join(
+        [
+            "Create remediation_plan.md for this service configuration.",
+            f"Deterministic findings: {state.get('config_summary', '')}",
+            "Include the exact line finding_count=3.",
+            "Do not modify source files.",
+        ]
+    )
 
 
-graph = langgraph.graph.StateGraph(SupportState)
-graph.add_node("load_ticket", load_ticket)
+def validate_result(state: ReviewState) -> dict[str, str]:
+    result = state["codex_result"]
+    if result.returncode != 0:
+        return {"validation_message": f"Codex failed: {result.stderr}"}
+
+    return {"validation_message": "Codex completed. Run domain validation next."}
+
+
+ensure_codex_authorized()
+
+graph = langgraph.graph.StateGraph(ReviewState)
+graph.add_node("inspect_config", inspect_config)
 graph.add_node(
-    "draft_reply",
+    "draft_remediation",
     create_codex_node(
-        executor=FakeExecutor(stdout="Priority: medium. Area: billing exports."),
-        prompt_builder=lambda state: f"Draft a support response for: {state['ticket']}",
+        executor=create_codex_executor(timeout_seconds=300),
+        prompt_builder=prompt_for_codex,
         workspace_path=lambda state: state["workspace_path"],
     ),
 )
-graph.add_node("finalize", finalize)
-graph.add_edge(langgraph.graph.START, "load_ticket")
-graph.add_edge("load_ticket", "draft_reply")
-graph.add_edge("draft_reply", "finalize")
-graph.add_edge("finalize", langgraph.graph.END)
+graph.add_node("validate_result", validate_result)
+graph.add_edge(langgraph.graph.START, "inspect_config")
+graph.add_edge("inspect_config", "draft_remediation")
+graph.add_edge("draft_remediation", "validate_result")
+graph.add_edge("validate_result", langgraph.graph.END)
 
 result = graph.compile().invoke({"workspace_path": pathlib.Path.cwd()})
-print(result["reply"])
+print(result["validation_message"])
 ```
 
-Swap `FakeExecutor` for `CodexExecutor` when you want a real `codex exec` run.
+That is the intended shape:
 
-## Real Codex
-
-`CodexExecutor` shells out to the Codex CLI, passes the prompt on stdin, captures stdout, stderr, return code, timeout state, and refuses known dangerous bypass flags.
-
-```python
-from langgraph_codex.execution import CodexExecutor
-
-executor = CodexExecutor(timeout_seconds=300)
+```text
+prepare deterministic context -> call Codex node -> validate deterministically -> route
 ```
 
-Real Codex examples and integration tests are opt-in because they require the Codex CLI and credentials.
+## Authorization
+
+Real Codex execution requires the Codex CLI and credentials. The runtime helpers load local `.env` values and map `OPEN_AI_SECRET_KEY` to `OPENAI_API_KEY` when needed.
 
 ```bash
-make examples-codex
-make test-codex
+cp .env.example .env
 ```
 
-See [docs/codex-authorization.md](docs/codex-authorization.md) for `.env`, `OPEN_AI_SECRET_KEY`, `OPEN_AI_KEY_NAME`, `OPEN_AI_MODEL`, GitHub Actions secrets, and CI guidance.
+Then set the relevant values:
 
-## Convenience Builders
+```text
+OPEN_AI_SECRET_KEY=...
+OPEN_AI_KEY_NAME=github-actions
+OPEN_AI_MODEL=
+```
 
-If you want a complete starter graph, the package still includes builders:
-
-- `build_context_only_graph()`
-- `build_execution_graph()`
-- `build_retry_graph()`
-
-They are useful for tests, quick starts, and simple workflows. Production applications will usually prefer `create_codex_node` inside their own graph.
+See [docs/codex-authorization.md](docs/codex-authorization.md) for local setup, GitHub Actions secrets, and CI guidance.
 
 ## Validation
 
-Validation is deterministic and application-owned. Built-in helpers cover common checks:
+Codex output should be checked by deterministic code before anything downstream consumes it.
+
+Good validators check files, schemas, command output, tests, checksums, and domain-specific facts:
 
 ```python
 from langgraph_codex.utils.validation import require_files
@@ -114,27 +132,31 @@ from langgraph_codex.utils.validation import require_files
 validators = [require_files(["remediation_plan.md"])]
 ```
 
-Recommended shape:
-
-```text
-prepare context -> call Codex node -> validate deterministically -> route
-```
-
-Use file checks, JSON checks, command checks, checksums, tests, and domain assertions before downstream systems consume Codex output.
+You can use the built-in validation helpers, or write normal LangGraph nodes that inspect your application state and route from there.
 
 ## Examples
 
-The examples are intentionally few:
+The examples are intentionally few and close to the production integration shape:
 
-- [examples/00_existing_langgraph_graph.py](examples/00_existing_langgraph_graph.py): offline, CI-safe, plain LangGraph graph with one Codex-backed node using `FakeExecutor`.
-- [examples/01_real_codex_node.py](examples/01_real_codex_node.py): real Codex graph with deterministic preprocessing and validation.
+- [examples/01_real_codex_node.py](examples/01_real_codex_node.py): real Codex inside a plain LangGraph graph, with deterministic preprocessing and validation.
+- [examples/00_existing_langgraph_graph.py](examples/00_existing_langgraph_graph.py): offline version of the same idea using `FakeExecutor`.
 
 Run:
 
 ```bash
-make examples
 make examples-codex
+make examples
 ```
+
+## Convenience Builders
+
+For small tests and quick starts, the package also includes complete graph builders:
+
+- `build_context_only_graph()`
+- `build_execution_graph()`
+- `build_retry_graph()`
+
+Most production applications should prefer `create_codex_node` inside their own graph.
 
 ## CI/CD
 
@@ -143,7 +165,7 @@ The repository validates:
 - GitHub Actions workflow syntax with actionlint;
 - Ruff formatting and linting;
 - Pylint with `10.00/10`;
-- strict mypy;
+- strict mypy and Pyright;
 - Python compile checks;
 - pytest across Python 3.10, 3.11, 3.12, and 3.13;
 - offline examples;
@@ -152,10 +174,23 @@ The repository validates:
 
 Release publishing uses PyPI trusted publishing through the `pypi` GitHub environment.
 
-## Documentation
+## Design Notes
 
-- [Design Philosophy](docs/design-philosophy.md)
-- [Codex Authorization](docs/codex-authorization.md)
+The package deliberately stays small. It does not own memory, UI, checkpoint storage, broad model selection, or repository policy. Those concerns belong in the graph and infrastructure you already control.
+
+Read more in [docs/design-philosophy.md](docs/design-philosophy.md).
+
+## Testing Without Codex
+
+Use `FakeExecutor` when you want CI-safe tests, examples, or local development without calling the Codex CLI.
+
+```python
+from langgraph_codex.execution import FakeExecutor
+
+executor = FakeExecutor(stdout="Priority: medium. Area: billing exports.")
+```
+
+`FakeExecutor` records requests and returns deterministic results, so you can assert prompt content, metadata, options, and graph routing without network credentials.
 
 ## Development
 
