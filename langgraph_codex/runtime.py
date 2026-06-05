@@ -9,10 +9,12 @@ ENV_PATH = REPOSITORY_ROOT / ".env"
 
 
 def load_local_env() -> open_ai_env.OpenAIEnvironment:
+    """Load repository-local Codex/OpenAI settings from .env."""
     return open_ai_env.configure_open_ai_environment(env_path=ENV_PATH)
 
 
 def ensure_codex_authorized() -> None:
+    """Fail fast when the Codex CLI or usable OpenAI credentials are missing."""
     environment = load_local_env()
     has_codex_cli = shutil.which("codex") is not None
     if not has_codex_cli:
@@ -25,6 +27,7 @@ def ensure_codex_authorized() -> None:
 
 
 def create_codex_executor(timeout_seconds: int = 300) -> CodexExecutor:
+    """Create a Codex executor from local environment defaults."""
     environment = load_local_env()
     ensure_codex_authorized()
     if environment.model:
@@ -40,6 +43,7 @@ def create_codex_executor(timeout_seconds: int = 300) -> CodexExecutor:
 
 
 def print_section(title: str, body: object = "") -> None:
+    """Print a readable console section for examples and smoke scripts."""
     print(f"\n{'=' * 80}")
     print(title)
     print(f"{'=' * 80}")
@@ -48,6 +52,7 @@ def print_section(title: str, body: object = "") -> None:
 
 
 def print_authorization_status() -> None:
+    """Print authorization diagnostics without exposing secret values."""
     environment = load_local_env()
     print_section(
         "Codex Authorization",

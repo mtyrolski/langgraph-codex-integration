@@ -13,6 +13,7 @@ CompiledGraph = typing.Any
 def build_context_only_graph(
     context_builder: graph_nodes.ContextBuilder | None = None,
 ) -> CompiledGraph:
+    """Build a graph that prepares context and renders a prompt without executing it."""
     graph: typing.Any = langgraph.graph.StateGraph(graph_state.WorkflowState)
     _add_node(graph, "build_context", graph_nodes.create_build_context_node(context_builder))
     _add_node(graph, "render_prompt", graph_nodes.create_render_prompt_node())
@@ -29,6 +30,7 @@ def build_execution_graph(
     *,
     backend: execution_base.Executor | None = None,
 ) -> CompiledGraph:
+    """Build a single-pass graph that renders a prompt, executes it, and reviews output."""
     selected_executor = _select_executor(executor=executor, backend=backend)
     graph: typing.Any = langgraph.graph.StateGraph(graph_state.WorkflowState)
     _add_node(graph, "build_context", graph_nodes.create_build_context_node(context_builder))
@@ -48,6 +50,7 @@ def build_basic_backend_graph(
     validators: list[validation_utils.Validator] | None = None,
     context_builder: graph_nodes.ContextBuilder | None = None,
 ) -> CompiledGraph:
+    """Build the execution graph using the older backend naming."""
     return build_execution_graph(
         executor=backend,
         validators=validators,
@@ -62,6 +65,7 @@ def build_retry_graph(
     *,
     backend: execution_base.Executor | None = None,
 ) -> CompiledGraph:
+    """Build an execution graph that retries while validation fails and budget remains."""
     selected_executor = _select_executor(executor=executor, backend=backend)
     graph: typing.Any = langgraph.graph.StateGraph(graph_state.WorkflowState)
     _add_node(graph, "build_context", graph_nodes.create_build_context_node(context_builder))
@@ -91,6 +95,7 @@ def build_retry_backend_graph(
     validators: list[validation_utils.Validator] | None = None,
     context_builder: graph_nodes.ContextBuilder | None = None,
 ) -> CompiledGraph:
+    """Build the retry graph using the older backend naming."""
     return build_retry_graph(
         executor=backend,
         validators=validators,

@@ -23,6 +23,7 @@ class FakeExecutor(execution_base.Executor):
         self,
         request: execution_base.ExecutionRequest,
     ) -> execution_base.ExecutionResult:
+        """Record the request and return a deterministic result for tests."""
         self.requests.append(request)
         if self.responder is not None:
             return self.responder(request)

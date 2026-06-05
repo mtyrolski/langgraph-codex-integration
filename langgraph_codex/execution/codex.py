@@ -26,6 +26,7 @@ class CodexExecutor(execution_base.Executor):
         self,
         request: execution_base.ExecutionRequest,
     ) -> execution_base.ExecutionResult:
+        """Run Codex in the request workspace with the prompt passed on stdin."""
         workspace_path = workspace_utils.validate_workspace_path(request.workspace_path)
         command = self.build_command(workspace_path=workspace_path)
         result = subprocess_utils.run_command(
@@ -47,6 +48,7 @@ class CodexExecutor(execution_base.Executor):
         )
 
     def build_command(self, workspace_path: str | pathlib.Path) -> list[str]:
+        """Build the Codex CLI command without executing it."""
         resolved_workspace_path = pathlib.Path(workspace_path).expanduser().resolve()
         self._validate_args()
 

@@ -2,6 +2,7 @@ import pathlib
 
 
 def resolve_workspace_path(workspace_path: str | pathlib.Path | None) -> pathlib.Path:
+    """Resolve a workspace path, using the current directory when none is provided."""
     if workspace_path is None:
         return pathlib.Path.cwd()
 
@@ -9,6 +10,7 @@ def resolve_workspace_path(workspace_path: str | pathlib.Path | None) -> pathlib
 
 
 def validate_workspace_path(workspace_path: str | pathlib.Path) -> pathlib.Path:
+    """Resolve a workspace path and fail unless it is an existing directory."""
     resolved_path = resolve_workspace_path(workspace_path)
     if not resolved_path.exists():
         raise FileNotFoundError(f"Workspace path does not exist: {resolved_path}")

@@ -26,6 +26,7 @@ def configure_open_ai_environment(
     env_path: str | pathlib.Path | None = None,
     environ: typing.MutableMapping[str, str] | None = None,
 ) -> OpenAIEnvironment:
+    """Load optional .env values and expose the OpenAI authorization state."""
     target_environ = environ if environ is not None else os.environ
     loaded_path = _load_env_file(env_path=env_path, environ=target_environ)
     secret_value = target_environ.get(OPEN_AI_SECRET_KEY)

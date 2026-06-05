@@ -19,6 +19,7 @@ def run_command(
     timeout_seconds: int | float | None = None,
     input_text: str | None = None,
 ) -> CommandResult:
+    """Run a command with captured output and convert timeouts into a result object."""
     resolved_cwd = pathlib.Path(cwd).expanduser().resolve()
     try:
         completed = subprocess.run(

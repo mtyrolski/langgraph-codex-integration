@@ -22,6 +22,7 @@ class ExecutionResult:
 
     @property
     def succeeded(self) -> bool:
+        """Return whether the executor completed with exit code zero."""
         return self.returncode == 0
 
 

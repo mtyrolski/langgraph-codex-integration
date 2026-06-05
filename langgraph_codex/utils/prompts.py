@@ -29,6 +29,7 @@ class PromptSpec:
 
 
 def render_prompt(spec: PromptSpec) -> str:
+    """Render a prompt spec into stable Markdown, omitting empty sections."""
     blocks: list[str] = []
 
     if spec.title.strip():
@@ -69,6 +70,7 @@ def render_prompt(spec: PromptSpec) -> str:
 
 
 def prompt_spec_from_state(state: typing.Mapping[str, typing.Any]) -> PromptSpec:
+    """Build a prompt spec from graph state while accepting common shorthand values."""
     return PromptSpec(
         title=str(state.get("task_title", "") or ""),
         objective=str(state.get("objective", "") or ""),

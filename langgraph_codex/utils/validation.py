@@ -17,6 +17,7 @@ Validator = typing.Callable[[typing.MutableMapping[str, typing.Any]], Validation
 
 
 def passing_validation(message: str = "Validation passed.") -> ValidationResult:
+    """Create a successful validation result with no extra details."""
     return ValidationResult(passed=True, message=message)
 
 
@@ -24,6 +25,7 @@ def failing_validation(
     message: str,
     details: dict[str, typing.Any] | None = None,
 ) -> ValidationResult:
+    """Create a failed validation result with optional structured details."""
     return ValidationResult(passed=False, message=message, details=details or {})
 
 
@@ -31,6 +33,7 @@ def run_validators(
     state: typing.MutableMapping[str, typing.Any],
     validators: list[Validator] | None = None,
 ) -> ValidationResult:
+    """Run validators in order and stop at the first failure."""
     active_validators = validators or []
     details: dict[str, typing.Any] = {"results": []}
 
@@ -52,6 +55,8 @@ def run_validators(
 
 
 def require_artifacts(keys: list[str]) -> Validator:
+    """Return a validator that requires named keys in state['artifacts']."""
+
     def validate(state: typing.MutableMapping[str, typing.Any]) -> ValidationResult:
         artifacts = state.get("artifacts", {}) or {}
         missing_keys = [key for key in keys if key not in artifacts]
@@ -67,6 +72,8 @@ def require_artifacts(keys: list[str]) -> Validator:
 
 
 def require_files(paths: list[str | pathlib.Path]) -> Validator:
+    """Return a validator that checks for files relative to the workspace path."""
+
     def validate(state: typing.MutableMapping[str, typing.Any]) -> ValidationResult:
         workspace_path = pathlib.Path(state.get("workspace_path", pathlib.Path.cwd()))
         missing_paths: list[str] = []
@@ -87,6 +94,8 @@ def require_files(paths: list[str | pathlib.Path]) -> Validator:
 
 
 def require_json_artifact(key: str) -> Validator:
+    """Return a validator that requires an artifact to be structured or valid JSON."""
+
     def validate(state: typing.MutableMapping[str, typing.Any]) -> ValidationResult:
         artifacts = state.get("artifacts", {}) or {}
         if key not in artifacts:
@@ -113,6 +122,8 @@ def command_validator(
     args: list[str],
     timeout_seconds: int | float | None = None,
 ) -> Validator:
+    """Return a validator that passes only when a command exits with code zero."""
+
     def validate(state: typing.MutableMapping[str, typing.Any]) -> ValidationResult:
         workspace_path = pathlib.Path(state.get("workspace_path", pathlib.Path.cwd()))
         result = subprocess_utils.run_command(
