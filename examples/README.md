@@ -5,13 +5,19 @@ The examples show the intended integration shape: keep your LangGraph app, then 
 Run the offline example:
 
 ```bash
-make examples
+uv run python3 -m examples.00_existing_langgraph_graph
 ```
 
 Run the real Codex example after installing and authenticating the Codex CLI:
 
 ```bash
-make examples-codex
+uv run python3 -m examples.01_real_codex_node
+```
+
+Run only the repository audit example:
+
+```bash
+uv run python3 -m examples.02_codebase_audit
 ```
 
 ## Index
@@ -20,6 +26,7 @@ make examples-codex
 | --- | --- | --- |
 | `00_existing_langgraph_graph.py` | Offline | A normal `langgraph.graph.StateGraph` where one node is backed by `create_codex_node` and `FakeExecutor`. |
 | `01_real_codex_node.py` | Real Codex | A normal LangGraph service-config review graph with deterministic preprocessing, a Codex remediation node, and deterministic validation. |
+| `02_codebase_audit.py` | Real Codex | A repository audit graph that gathers real codebase context, asks Codex for `codebase_audit.md`, and validates the artifact. |
 
 ## Pattern
 

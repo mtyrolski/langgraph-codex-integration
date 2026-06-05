@@ -40,56 +40,66 @@ from langgraph_codex.runtime import create_codex_executor, ensure_codex_authoriz
 
 
 class ReviewState(typing.TypedDict, total=False):
-    workspace_path: pathlib.Path
-    config_summary: str
+    workspace_path: typing.Required[pathlib.Path]
+    repo_context: dict[str, list[str]]
     codex_result: ExecutionResult
     validation_message: str
 
 
-def inspect_config(_state: ReviewState) -> dict[str, str]:
+def inspect_codebase(_state: ReviewState) -> dict[str, dict[str, list[str]]]:
     return {
-        "config_summary": (
-            "retry_attempts=6, timeout_seconds=45, batch_size=500. "
-            "Recommended limits are 3, 30, and 250."
-        )
+        "repo_context": {
+            "package_files": ["langgraph_codex/graph/nodes.py"],
+            "test_files": ["tests/test_graphs.py", "tests/test_execution.py"],
+            "example_files": ["examples/00_existing_langgraph_graph.py"],
+        }
     }
 
 
 def prompt_for_codex(state: ReviewState) -> str:
     return "\n".join(
         [
-            "Create remediation_plan.md for this service configuration.",
-            f"Deterministic findings: {state.get('config_summary', '')}",
-            "Include the exact line finding_count=3.",
-            "Do not modify source files.",
+            "Audit the existing langgraph-codex repository.",
+            f"Repository context: {state.get('repo_context', {})}",
+            "Write codebase_audit.md with concrete findings about tests and examples.",
+            "Do not invent an unrelated service configuration.",
         ]
     )
 
 
 def validate_result(state: ReviewState) -> dict[str, str]:
-    result = state["codex_result"]
+    result = state.get("codex_result")
+    if result is None:
+        return {"validation_message": "Codex did not return a result."}
     if result.returncode != 0:
         return {"validation_message": f"Codex failed: {result.stderr}"}
 
-    return {"validation_message": "Codex completed. Run domain validation next."}
+    return {"validation_message": "Codex completed. Validate codebase_audit.md next."}
 
 
 ensure_codex_authorized()
+codex_node = create_codex_node(
+    executor=create_codex_executor(timeout_seconds=300),
+    prompt_builder=prompt_for_codex,
+    workspace_path=lambda state: state["workspace_path"],
+)
+
+
+def draft_audit(state: ReviewState) -> dict[str, ExecutionResult]:
+    update = codex_node(state)
+    result = update.get("codex_result")
+    if not isinstance(result, ExecutionResult):
+        raise TypeError("Codex node did not return codex_result.")
+
+    return {"codex_result": result}
 
 graph = langgraph.graph.StateGraph(ReviewState)
-graph.add_node("inspect_config", inspect_config)
-graph.add_node(
-    "draft_remediation",
-    create_codex_node(
-        executor=create_codex_executor(timeout_seconds=300),
-        prompt_builder=prompt_for_codex,
-        workspace_path=lambda state: state["workspace_path"],
-    ),
-)
+graph.add_node("inspect_codebase", inspect_codebase)
+graph.add_node("draft_audit", draft_audit)
 graph.add_node("validate_result", validate_result)
-graph.add_edge(langgraph.graph.START, "inspect_config")
-graph.add_edge("inspect_config", "draft_remediation")
-graph.add_edge("draft_remediation", "validate_result")
+graph.add_edge(langgraph.graph.START, "inspect_codebase")
+graph.add_edge("inspect_codebase", "draft_audit")
+graph.add_edge("draft_audit", "validate_result")
 graph.add_edge("validate_result", langgraph.graph.END)
 
 result = graph.compile().invoke({"workspace_path": pathlib.Path.cwd()})
@@ -140,12 +150,14 @@ The examples are intentionally few and close to the production integration shape
 
 - [examples/01_real_codex_node.py](examples/01_real_codex_node.py): real Codex inside a plain LangGraph graph, with deterministic preprocessing and validation.
 - [examples/00_existing_langgraph_graph.py](examples/00_existing_langgraph_graph.py): offline version of the same idea using `FakeExecutor`.
+- [examples/02_codebase_audit.py](examples/02_codebase_audit.py): real Codex codebase audit graph that gathers repository context and validates `codebase_audit.md`.
 
 Run:
 
 ```bash
-make examples-codex
-make examples
+uv run python3 -m examples.00_existing_langgraph_graph
+uv run python3 -m examples.01_real_codex_node
+uv run python3 -m examples.02_codebase_audit
 ```
 
 ## Convenience Builders
@@ -167,7 +179,7 @@ The repository validates:
 - Pylint with `10.00/10`;
 - strict mypy and Pyright;
 - Python compile checks;
-- pytest across Python 3.10, 3.11, 3.12, and 3.13;
+- pytest across Python 3.11, 3.12, and 3.13;
 - offline examples;
 - wheel and source distribution build plus Twine metadata validation;
 - optional real Codex smoke checks through workflow dispatch.
