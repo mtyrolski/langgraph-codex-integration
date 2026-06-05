@@ -21,6 +21,7 @@ ResultMapper = typing.Callable[[execution_base.ExecutionResult], StateUpdate]
 
 
 def build_context(state: graph_state.WorkflowState) -> StateUpdate:
+    """Normalize baseline workflow state before prompt rendering or execution."""
     workspace_path = workspace_utils.resolve_workspace_path(state.get("workspace_path"))
     return {
         "workspace_path": workspace_path,
@@ -34,16 +35,19 @@ def build_context(state: graph_state.WorkflowState) -> StateUpdate:
 
 
 def render_prompt(state: graph_state.WorkflowState) -> StateUpdate:
+    """Render the workflow state's prompt fields into Markdown."""
     prompt_spec = prompt_utils.prompt_spec_from_state(state)
     return {"rendered_prompt": prompt_utils.render_prompt(prompt_spec)}
 
 
 def retry_node(state: graph_state.WorkflowState) -> StateUpdate:
+    """Increment retry_count after a failed review."""
     retry_count = int(state.get("retry_count", 0) or 0)
     return {"retry_count": retry_count + 1}
 
 
 def route_after_review(state: graph_state.WorkflowState) -> str:
+    """Route to success, retry, or fail from validation state and retry budget."""
     validation_result = state.get("validation_result")
     if validation_result is not None and validation_result.passed:
         return "success"
@@ -57,6 +61,8 @@ def route_after_review(state: graph_state.WorkflowState) -> str:
 
 
 def create_build_context_node(context_builder: ContextBuilder | None = None) -> ContextBuilder:
+    """Create a context node, optionally layering caller-provided context."""
+
     def node(state: graph_state.WorkflowState) -> StateUpdate:
         update = build_context(state)
         if context_builder is not None:
@@ -72,6 +78,8 @@ def create_build_context_node(context_builder: ContextBuilder | None = None) -> 
 
 
 def create_render_prompt_node() -> ContextBuilder:
+    """Create a node that renders prompt fields from workflow state."""
+
     def node(state: graph_state.WorkflowState) -> StateUpdate:
         return render_prompt(state)
 
@@ -81,6 +89,7 @@ def create_render_prompt_node() -> ContextBuilder:
 def create_execution_node(
     executor: execution_base.Executor | None = None,
 ) -> ContextBuilder:
+    """Create a node that sends rendered_prompt to an executor."""
     selected_executor = executor or fake_execution.FakeExecutor()
 
     def node(state: graph_state.WorkflowState) -> StateUpdate:
@@ -103,6 +112,7 @@ def create_execution_node(
 def create_backend_node(
     backend: execution_base.Executor | None = None,
 ) -> ContextBuilder:
+    """Create an execution node using the older backend naming."""
     return create_execution_node(backend)
 
 
@@ -116,6 +126,8 @@ def create_codex_node(  # pylint: disable=too-many-arguments
     options_builder: OptionsBuilder | None = None,
     result_mapper: ResultMapper | None = None,
 ) -> typing.Callable[[StateMapping], StateUpdate]:
+    """Create a bounded Codex-backed node for use inside an application graph."""
+
     def node(state: StateMapping) -> StateUpdate:
         request = execution_base.ExecutionRequest(
             workspace_path=_resolve_node_workspace_path(state, workspace_path),
@@ -135,6 +147,8 @@ def create_codex_node(  # pylint: disable=too-many-arguments
 def create_review_node(
     validators: list[validation_utils.Validator] | None = None,
 ) -> ContextBuilder:
+    """Create a review node that turns execution output into validation state."""
+
     def node(state: graph_state.WorkflowState) -> StateUpdate:
         execution_result = state.get("execution_result") or state.get("backend_result")
         if execution_result is not None and execution_result.returncode != 0:
@@ -167,9 +181,10 @@ def create_review_node(
 
 
 def serialize_state_value(value: typing.Any) -> typing.Any:
+    """Convert common state values into JSON-friendly Python primitives."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         dataclass_value = typing.cast(typing.Any, value)
-        return dataclasses.asdict(dataclass_value)
+        return serialize_state_value(dataclasses.asdict(dataclass_value))
     if isinstance(value, pathlib.Path):
         return str(value)
     if isinstance(value, dict):

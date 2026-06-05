@@ -1,3 +1,7 @@
+import pathlib
+
+import pytest
+
 import langgraph_codex.utils.prompts
 
 
@@ -64,3 +68,139 @@ def test_prompt_spec_from_state_coerces_structured_state() -> None:
     assert [section.title for section in spec.context_sections] == ["A", "B"]
     assert spec.constraints == ["one constraint"]
     assert spec.files[0].path == "notes.md"
+
+
+def test_render_prompt_returns_empty_string_for_empty_spec() -> None:
+    assert (
+        langgraph_codex.utils.prompts.render_prompt(langgraph_codex.utils.prompts.PromptSpec())
+        == ""
+    )
+
+
+def test_render_prompt_handles_files_with_and_without_descriptions() -> None:
+    spec = langgraph_codex.utils.prompts.PromptSpec(
+        files=[
+            langgraph_codex.utils.prompts.PromptFile(path="README.md"),
+            langgraph_codex.utils.prompts.PromptFile(
+                path=pathlib.Path("tests/test_prompts.py"),
+                description="Prompt tests.",
+            ),
+            langgraph_codex.utils.prompts.PromptFile(path="   ", description="Ignored."),
+        ]
+    )
+
+    rendered_prompt = langgraph_codex.utils.prompts.render_prompt(spec)
+
+    assert rendered_prompt == (
+        "## Files\n\n- `README.md`\n- `tests/test_prompts.py`: Prompt tests."
+    )
+
+
+def test_render_prompt_filters_blank_context_bullets_files_and_artifacts() -> None:
+    spec = langgraph_codex.utils.prompts.PromptSpec(
+        title="  Trimmed title  ",
+        objective="  Trimmed objective  ",
+        context_sections=[
+            langgraph_codex.utils.prompts.PromptSection(title=" ", body="ignored"),
+            langgraph_codex.utils.prompts.PromptSection(title="Kept", body=" body "),
+        ],
+        constraints=[" ", "keep constraint"],
+        files=[langgraph_codex.utils.prompts.PromptFile(path="", description="ignored")],
+        artifacts={"none": None, "empty": "", "kept": 0},
+    )
+
+    rendered_prompt = langgraph_codex.utils.prompts.render_prompt(spec)
+
+    assert rendered_prompt == (
+        "# Trimmed title\n\n"
+        "## Objective\n\n"
+        "Trimmed objective\n\n"
+        "## Context\n\n"
+        "### Kept\n\n"
+        "body\n\n"
+        "## Constraints\n\n"
+        "- keep constraint\n\n"
+        "## Artifacts\n\n"
+        "- `kept`: 0"
+    )
+
+
+@pytest.mark.parametrize(
+    ("context_value", "expected_sections"),
+    [
+        (None, []),
+        ("raw context", [("Context", "raw context")]),
+        (
+            ["first", {"title": "Second", "body": "second body"}],
+            [("Context", "first"), ("Second", "second body")],
+        ),
+        (
+            [
+                langgraph_codex.utils.prompts.PromptSection(
+                    title="Existing",
+                    body="existing body",
+                )
+            ],
+            [("Existing", "existing body")],
+        ),
+    ],
+)
+def test_prompt_spec_from_state_coerces_context_variants(
+    context_value: object,
+    expected_sections: list[tuple[str, str]],
+) -> None:
+    spec = langgraph_codex.utils.prompts.prompt_spec_from_state({"context": context_value})
+
+    assert [(section.title, section.body) for section in spec.context_sections] == expected_sections
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, []),
+        ("single", ["single"]),
+        (["one", None, 2], ["one", "2"]),
+        (7, ["7"]),
+    ],
+)
+def test_prompt_spec_from_state_coerces_list_like_fields(
+    value: object,
+    expected: list[str],
+) -> None:
+    spec = langgraph_codex.utils.prompts.prompt_spec_from_state(
+        {
+            "constraints": value,
+            "acceptance_criteria": value,
+            "resources": value,
+            "additional_instructions": value,
+        }
+    )
+
+    assert spec.constraints == expected
+    assert spec.acceptance_criteria == expected
+    assert spec.resources == expected
+    assert spec.additional_instructions == expected
+
+
+@pytest.mark.parametrize(
+    ("files_value", "expected_paths"),
+    [
+        (None, []),
+        ("README.md", ["README.md"]),
+        (
+            [
+                "pyproject.toml",
+                {"path": "tests/test_graphs.py", "description": "Graph tests"},
+                langgraph_codex.utils.prompts.PromptFile(path="docs/design-philosophy.md"),
+            ],
+            ["pyproject.toml", "tests/test_graphs.py", "docs/design-philosophy.md"],
+        ),
+    ],
+)
+def test_prompt_spec_from_state_coerces_file_variants(
+    files_value: object,
+    expected_paths: list[str],
+) -> None:
+    spec = langgraph_codex.utils.prompts.prompt_spec_from_state({"files": files_value})
+
+    assert [str(prompt_file.path) for prompt_file in spec.files] == expected_paths

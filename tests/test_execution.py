@@ -3,8 +3,29 @@ import typing
 
 import pytest
 
+import langgraph_codex
+import langgraph_codex.backends
 import langgraph_codex.execution
 import langgraph_codex.utils.subprocess
+
+
+def test_execution_result_succeeded_reflects_return_code() -> None:
+    assert langgraph_codex.execution.ExecutionResult(stdout="", stderr="", returncode=0).succeeded
+    assert not langgraph_codex.execution.ExecutionResult(
+        stdout="",
+        stderr="failed",
+        returncode=2,
+    ).succeeded
+
+
+def test_backend_aliases_match_execution_exports() -> None:
+    assert langgraph_codex.BackendRequest is langgraph_codex.execution.ExecutionRequest
+    assert langgraph_codex.BackendResult is langgraph_codex.execution.ExecutionResult
+    assert langgraph_codex.ExecutionBackend is langgraph_codex.execution.Executor
+    assert langgraph_codex.CodexBackend is langgraph_codex.execution.CodexExecutor
+    assert langgraph_codex.CodexExecBackend is langgraph_codex.execution.CodexExecutor
+    assert langgraph_codex.FakeBackend is langgraph_codex.execution.FakeExecutor
+    assert langgraph_codex.backends.CodexExecutor is langgraph_codex.execution.CodexExecutor
 
 
 def test_fake_executor_returns_configured_result_and_captures_request(
@@ -27,6 +48,25 @@ def test_fake_executor_returns_configured_result_and_captures_request(
     assert result.stdout == "done"
     assert result.structured_outputs == {"value": 1}
     assert executor.requests == [request]
+
+
+def test_fake_executor_copies_structured_outputs_per_execution(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.FakeExecutor(
+        structured_outputs={"items": ["initial"]},
+        response={"raw": True},
+    )
+    request = langgraph_codex.execution.ExecutionRequest(
+        workspace_path=tmp_path,
+        prompt="Perform work.",
+    )
+
+    first_result = executor.execute(request)
+    first_result.structured_outputs["items"] = ["mutated"]
+    second_result = executor.execute(request)
+
+    assert second_result.structured_outputs == {"items": ["initial"]}
+    assert second_result.raw_response == {"raw": True}
+    assert executor.requests == [request, request]
 
 
 def test_fake_executor_can_use_responder(tmp_path: pathlib.Path) -> None:
@@ -88,12 +128,56 @@ def test_codex_executor_can_use_cli_default_model(tmp_path: pathlib.Path) -> Non
     assert command[-1] == "-"
 
 
-def test_codex_executor_rejects_dangerous_flags(tmp_path: pathlib.Path) -> None:
-    executor = langgraph_codex.execution.CodexExecutor(
-        extra_args=["--dangerously-bypass-approvals-and-sandbox=true"]
-    )
+def test_codex_executor_can_keep_git_repo_check(tmp_path: pathlib.Path) -> None:
+    executor = langgraph_codex.execution.CodexExecutor(skip_git_repo_check=False)
+
+    command = executor.build_command(tmp_path)
+
+    assert "--skip-git-repo-check" not in command
+
+
+@pytest.mark.parametrize(
+    "dangerous_flag",
+    [
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--dangerously-bypass-approvals-and-sandbox=true",
+        "--dangerously-bypass-hook-trust",
+        "--dangerously-bypass-hook-trust=true",
+    ],
+)
+def test_codex_executor_rejects_dangerous_flags(
+    tmp_path: pathlib.Path,
+    dangerous_flag: str,
+) -> None:
+    executor = langgraph_codex.execution.CodexExecutor(extra_args=[dangerous_flag])
 
     with pytest.raises(ValueError, match="Refusing dangerous Codex flag"):
+        executor.build_command(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("executor", "message"),
+    [
+        (
+            langgraph_codex.execution.CodexExecutor(codex_bin=""),
+            "codex_bin must not be empty",
+        ),
+        (
+            langgraph_codex.execution.CodexExecutor(sandbox=""),
+            "sandbox must not be empty",
+        ),
+        (
+            langgraph_codex.execution.CodexExecutor(approval_policy=""),
+            "approval_policy must not be empty",
+        ),
+    ],
+)
+def test_codex_executor_rejects_empty_required_command_fields(
+    tmp_path: pathlib.Path,
+    executor: langgraph_codex.execution.CodexExecutor,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
         executor.build_command(tmp_path)
 
 
@@ -140,9 +224,38 @@ def test_codex_executor_execute_passes_prompt_on_stdin(
     result = executor.execute(request)
 
     assert result.stdout == "ok"
+    assert isinstance(result.raw_response, langgraph_codex.utils.subprocess.CommandResult)
     assert calls[0]["input_text"] == "Do work."
     assert calls[0]["timeout_seconds"] == 10
     assert calls[0]["args"][-1] == "-"
+    assert result.structured_outputs["cwd"] == str(tmp_path.resolve())
+    assert result.structured_outputs["timed_out"] is False
+
+
+def test_codex_executor_rejects_missing_workspace_before_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    def unexpected_run_command(
+        _args: list[str],
+        cwd: str | pathlib.Path,
+        timeout_seconds: int | float | None = None,
+        input_text: str | None = None,
+    ) -> langgraph_codex.utils.subprocess.CommandResult:
+        raise AssertionError("run_command should not be called")
+
+    monkeypatch.setattr(
+        langgraph_codex.utils.subprocess,
+        "run_command",
+        unexpected_run_command,
+    )
+    request = langgraph_codex.execution.ExecutionRequest(
+        workspace_path=tmp_path / "missing",
+        prompt="Do work.",
+    )
+
+    with pytest.raises(FileNotFoundError, match="Workspace path does not exist"):
+        langgraph_codex.execution.CodexExecutor().execute(request)
 
 
 @pytest.mark.parametrize(
